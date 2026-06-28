@@ -1,33 +1,44 @@
 # aSuspect
 
-Lightweight aTrust VPN proxy implemented in Go.
+[中文](README_zh.md)
 
-## Architecture
+<p align="center">
+<a><img alt="Logo" width="80%" src="./avatar.webp" /></a>
+<br>
+A lightweight, portable, and easy-to-use aTrust VPN proxy core implemented in Go
+</p>
 
-- `auth/`: authenticator implementations.
-- `gatherer/`: `InfoGatherer` and `SessionStore`; fetches `clientResource` and builds shared state.
-- `l4quic/`: L4 TCP tunnel using TLS and binary framing, one TLS connection per TCP connection.
-- `l3tun/`: L3 tunnel using gVisor netstack, TLS, and conntrack.
-- `proxy/`: SOCKS5 server, routing, DNS resolver, and tunnel orchestration.
-- `spa/`: Single Packet Authorization ClientHello extension support.
-- `shared/`: shared config and domain types.
+## Overview
 
-gVisor provides the userspace TCP/IP stack. TCP can use the L4 tunnel for lower overhead, while DNS and L3 traffic use the L3 tunnel.
+aSuspect is a lightweight VPN proxy core that only starts a SOCKS5 proxy service. It needs to be used with other tools like mihomo/singbox for traffic splitting. aSuspect forwards traffic based on resource information obtained from the server — non-compliant traffic is simply dropped. The implementation references ZJU and aTrust binaries.
 
-## Session Flow
+It all started because some implementations install root certificates on your computer — greater privileges deserve greater scrutiny!
+
+CAS authentication uses a tool called fakeProxy, which enables easy authentication for headless devices and could theoretically support OAuth2 authentication as well.
+
+Due to SOCKS5 limitations, only TCP, UDP, and DNS forwarding are supported; other traffic will be dropped. If needed, use IP-over-UDP or similar solutions for transport.
+
+TCP traffic has two forwarding modes: l4quic (L4 fast connection) and l3tun. The former transmits over TCP for higher speed, while the latter uses the versatile l3tun tunnel. For speed, use UDP-over-TCP over l4quic; for stability, use l3tun. L3 is single-connection — the original implementation has a transport pool that groups more traffic into batches, but personal testing showed no significant advantage, so it was not implemented.
+
+Limited by personal authentication access, CAS authentication is currently working well. Other authentication methods and SPA knocking are only theoretical implementations at this stage and have not been tested.
+
+## Quick Start
 
 First login:
 
 ```bash
-./aSuspect -server <server> -auth auth/psw
+./aSuspect -server <server> -auth auth/<type>
 ```
 
-The login flow saves `aSuspect_session.json`.
-
-Later runs:
+To list available auth types:
 
 ```bash
-./aSuspect -server <server>
+./aSuspect -server <server> -auth-type
 ```
 
-The saved session is loaded, resources are gathered, and the local SOCKS5 proxy starts.
+After login, session info is saved to `aSuspect_session.json`, and subsequent runs no longer require login parameters. If migrating, copy the `aSuspect_session.json` file to the new environment.
+
+## TODO
+- [ ] SPA knocking verification
+- [ ] Other authentication method verification
+- [ ] IPv6 support
