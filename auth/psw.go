@@ -1,12 +1,20 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"aSuspect/shared"
 )
@@ -153,8 +161,12 @@ func withCaptcha(s *Session, process func(captchaCode string) (int, error)) erro
 }
 
 func (s *Session) fetchCaptcha() ([]byte, error) {
-	u := fmt.Sprintf("%s/passport/v1/public/checkCode?rnd=1", s.baseURL())
+	params := sharedParams(url.Values{
+		"rnd": {strconv.FormatInt(time.Now().UnixMilli(), 10)},
+	})
+	u := fmt.Sprintf("%s/passport/v1/public/checkCode?%s", s.baseURL(), params.Encode())
 	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("User-Agent", shared.UserAgent)
 	req.Header.Set("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
 
 	resp, err := s.client.Do(req)
@@ -183,6 +195,10 @@ func canonicalCaptcha(rawInput string, imgData []byte) (string, error) {
 
 	var arr []interface{}
 	if json.Unmarshal([]byte(rawInput), &arr) == nil && len(arr) > 0 {
+		w, h, err := decodeImageSize(imgData)
+		if err != nil {
+			return "", fmt.Errorf("captcha image: %w", err)
+		}
 		switch arr[0].(type) {
 		case map[string]interface{}:
 			// Format 2: [{"x":X, "y":Y}, ...]
@@ -196,8 +212,8 @@ func canonicalCaptcha(rawInput string, imgData []byte) (string, error) {
 			}
 			result := map[string]interface{}{
 				"coordinates": coords,
-				"width":       jpegDim(imgData, 7),
-				"height":      jpegDim(imgData, 5),
+				"width":       w,
+				"height":      h,
 			}
 			b, _ := json.Marshal(result)
 			return string(b), nil
@@ -214,8 +230,8 @@ func canonicalCaptcha(rawInput string, imgData []byte) (string, error) {
 			}
 			result := map[string]interface{}{
 				"coordinates": coords,
-				"width":       jpegDim(imgData, 7),
-				"height":      jpegDim(imgData, 5),
+				"width":       w,
+				"height":      h,
 			}
 			b, _ := json.Marshal(result)
 			return string(b), nil
@@ -225,12 +241,17 @@ func canonicalCaptcha(rawInput string, imgData []byte) (string, error) {
 	return "", fmt.Errorf("unrecognized captcha format: %s", rawInput)
 }
 
-// jpegDim extracts width or height from a JPEG SOF0 marker.
-func jpegDim(data []byte, offset int) int {
-	for i := 0; i < len(data)-9; i++ {
-		if data[i] == 0xFF && data[i+1] == 0xC0 {
-			return int(data[i+offset])<<8 | int(data[i+offset+1])
-		}
+// decodeImageSize returns the width and height of an image (JPEG, PNG, GIF).
+func decodeImageSize(imgData []byte) (int, int, error) {
+	if len(imgData) == 0 {
+		return 0, 0, fmt.Errorf("empty image data")
 	}
-	return 300 // fallback
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(imgData))
+	if err != nil {
+		return 0, 0, err
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 {
+		return 0, 0, fmt.Errorf("invalid image dimensions: %dx%d", cfg.Width, cfg.Height)
+	}
+	return cfg.Width, cfg.Height, nil
 }

@@ -87,17 +87,9 @@ func run(cfg *shared.Config) error {
 }
 
 func doLogin(cfg *shared.Config) (*gatherer.SessionStore, error) {
-	// Pick the right authenticator based on -auth-type.
-	var method auth.Authenticator
-	switch cfg.AuthType {
-	case "auth/psw":
-		method = &auth.PasswordAuth{}
-	case "auth/sms":
-		method = &auth.SMSAuth{}
-	case "auth/cas":
-		method = &auth.RedirectAuth{}
-	default:
-		return nil, fmt.Errorf("unknown auth type: %s", cfg.AuthType)
+	method, err := resolveAuthMethod(cfg.AuthType)
+	if err != nil {
+		return nil, err
 	}
 
 	creds, err := auth.Login(cfg.ServerAddress, cfg.ServerPort, method, "")
@@ -107,23 +99,41 @@ func doLogin(cfg *shared.Config) (*gatherer.SessionStore, error) {
 
 	log.Printf("Login successful")
 
-	// Save session.
-	session := &gatherer.SessionStore{
-		SID:       creds.SID,
-		DeviceID:  creds.DeviceID,
-		SignKey:   creds.SignKey,
-		Username:  creds.Username,
-		Server:    cfg.ServerAddress,
-		Cookies:   creds.Cookies,
-		AntiMITM:  creds.AntiMITM,
-		CSRFToken: creds.CSRFToken,
-		LiveJar:   creds.Jar,
-	}
+	session := sessionFromCreds(creds, cfg.ServerAddress)
 	if err := session.Save(); err != nil {
 		return nil, fmt.Errorf("save session: %w", err)
 	}
 
 	return session, nil
+}
+
+func resolveAuthMethod(authType string) (auth.Authenticator, error) {
+	switch authType {
+	case "auth/psw":
+		return &auth.PasswordAuth{}, nil
+	case "auth/sms":
+		return &auth.SMSAuth{}, nil
+	case "auth/cas":
+		return &auth.RedirectAuth{}, nil
+	default:
+		return nil, fmt.Errorf("unknown auth type: %s", authType)
+	}
+}
+
+// sessionFromCreds converts auth credentials into a session store.
+// This is wiring-layer code — it translates between auth and gatherer types.
+func sessionFromCreds(creds *auth.Credentials, server string) *gatherer.SessionStore {
+	return &gatherer.SessionStore{
+		SID:       creds.SID,
+		DeviceID:  creds.DeviceID,
+		SignKey:   creds.SignKey,
+		Username:  creds.Username,
+		Server:    server,
+		Cookies:   creds.Cookies,
+		AntiMITM:  creds.AntiMITM,
+		CSRFToken: creds.CSRFToken,
+		LiveJar:   creds.Jar,
+	}
 }
 
 func printAuthInfo(cfg *shared.Config) {

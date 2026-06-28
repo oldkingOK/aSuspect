@@ -59,15 +59,9 @@ type Conn struct {
 // If domain is non-empty, the domain-form destination frame is used.
 func (t *Tunnel) Dial(nodeAddr string, dstIP net.IP, dstPort int, domain, appID string) (*Conn, error) {
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	var rawConn net.Conn
-	var err error
-	if len(t.SpaExt) > 0 {
-		rawConn, err = spa.DialWithSPA(nodeAddr, tlsConfig, t.SpaExt)
-	} else {
-		rawConn, err = tls.Dial("tcp", nodeAddr, tlsConfig)
-	}
+	rawConn, err := spa.DialTLS(nodeAddr, tlsConfig, t.SpaExt)
 	if err != nil {
-		return nil, fmt.Errorf("L4 TLS dial %s: %w", nodeAddr, err)
+		return nil, err
 	}
 
 	// Build and send init frame.

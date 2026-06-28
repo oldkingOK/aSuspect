@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -83,12 +82,10 @@ type Credentials struct {
 // NewSession creates an auth session for the given server.
 func NewSession(server string, port int, deviceID string) *Session {
 	if deviceID == "" {
-		deviceID = randHex(32)
+		deviceID = shared.RandHex(32)
 	}
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
+	tr := shared.NewTransport()
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Transport: tr, Jar: jar}
 
@@ -419,7 +416,12 @@ func (s *Session) Credentials() (*Credentials, error) {
 
 	antiMITM := s.antiMITM()
 
-	signKey := randHex(64)
+	signKey := shared.RandHex(64)
+
+	jar, ok := s.client.Jar.(*cookiejar.Jar)
+	if !ok {
+		return nil, fmt.Errorf("session cookie jar is not *cookiejar.Jar")
+	}
 
 	return &Credentials{
 		SID:       sid,
@@ -429,7 +431,7 @@ func (s *Session) Credentials() (*Credentials, error) {
 		Cookies:   out,
 		AntiMITM:  antiMITM,
 		CSRFToken: s.csrfToken,
-		Jar:       s.client.Jar.(*cookiejar.Jar),
+		Jar:       jar,
 	}, nil
 }
 
@@ -452,15 +454,7 @@ func sharedParams(extra url.Values) url.Values {
 }
 
 func randSdpID() string {
-	return randHex(8)
-}
-
-func randHex(n int) string {
-	b := make([]byte, (n+1)/2)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Errorf("crypto rand: %w", err))
-	}
-	return hex.EncodeToString(b)[:n]
+	return shared.RandHex(8)
 }
 
 // ── RSA helpers ──────────────────────────────────────────────────────────────
@@ -481,5 +475,5 @@ func (s *Session) EncryptPassword(password string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("RSA encrypt: %w", err)
 	}
-	return strings.ToUpper(hex.EncodeToString(cipher)), nil
+	return hex.EncodeToString(cipher), nil
 }

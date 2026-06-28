@@ -1,7 +1,6 @@
 package gatherer
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -29,10 +28,8 @@ type SessionStore struct {
 
 func (s *SessionStore) LiveClient() *http.Client {
 	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		Jar: s.LiveJar,
+		Transport: shared.NewTransport(),
+		Jar:       s.LiveJar,
 	}
 }
 
@@ -42,10 +39,8 @@ func (s *SessionStore) NewClient() (*http.Client, error) {
 		return nil, err
 	}
 	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
-		Jar: jar,
+		Transport: shared.NewTransport(),
+		Jar:       jar,
 	}, nil
 }
 

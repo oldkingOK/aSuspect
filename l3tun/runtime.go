@@ -42,11 +42,25 @@ func NewRuntime(state *shared.SharedState, spaExt []byte) (*Runtime, error) {
 		return nil, fmt.Errorf("gVisor stack: %w", err)
 	}
 
-	return &Runtime{
+	r := &Runtime{
 		state:  state,
 		stack:  stack,
 		tunnel: tunnel,
-	}, nil
+	}
+
+	// Wire synchronous egress — gVisor WritePackets calls this directly,
+	// avoiding the extra goroutine/channel hop that can lose or delay packets.
+	// This matches zju-connect's architecture: processIPV4 is called directly
+	// from the endpoint's Write path.
+	stack.OnEgress = func(rawPkt []byte) error {
+		parsed, err := parseIPv4Packet(rawPkt)
+		if err != nil {
+			return err
+		}
+		return r.writeEgressPacket(rawPkt, parsed)
+	}
+
+	return r, nil
 }
 
 // Stack returns the L3 userspace stack used by DNS and L3 TCP/UDP routing.
@@ -54,19 +68,10 @@ func (r *Runtime) Stack() Stack {
 	return r.stack
 }
 
-// Run bridges packets between gVisor and the L3 tunnel until ctx is cancelled.
+// Run bridges inbound packets from the L3 tunnel into gVisor.
+// Outbound packets are handled synchronously by OnEgress, set in NewRuntime.
 func (r *Runtime) Run(ctx context.Context) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		r.runEgress(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		r.runIngress(ctx)
-	}()
-	wg.Wait()
+	r.runIngress(ctx)
 }
 
 // Close shuts down the L3 runtime.
@@ -116,42 +121,23 @@ func assignVIP(state *shared.SharedState, tunnel *tunnel) error {
 	return nil
 }
 
-func (r *Runtime) runEgress(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case rawPkt, ok := <-r.stack.EgressChan():
-			if !ok {
-				return
-			}
-			parsed, err := parseIPv4Packet(rawPkt)
-			if err != nil {
-				continue
-			}
-			r.writeEgressPacket(rawPkt, parsed)
-		}
-	}
-}
-
-func (r *Runtime) writeEgressPacket(rawPkt []byte, parsed parsedPacket) {
+// writeEgressPacket parses a raw IPv4 packet, matches it against resources,
+// and sends it through the L3 tunnel with per-flow authentication.
+// Returns an error if the packet doesn't match any resource or sending fails.
+// This mirrors zju-connect's processIPV4 → writePacket path.
+func (r *Runtime) writeEgressPacket(rawPkt []byte, parsed parsedPacket) error {
 	snap := r.state.Snapshot()
 
-	var appID, ngID string
-	for _, res := range snap.IPResources {
-		if res.ContainsIP(parsed.DstIP) {
-			proto := l3ResourceProto(parsed.Proto)
-			if res.Matches(proto, int(parsed.DstPort)) {
-				appID = res.AppID
-				ngID = res.NodeGroupID
-				break
-			}
-		}
+	proto := l3ResourceProto(parsed.Proto)
+	res := snap.FindIPResource(parsed.DstIP, proto, int(parsed.DstPort))
+	if res == nil {
+		return fmt.Errorf("resource not found for %s:%d proto=%s",
+			parsed.DstIP, parsed.DstPort, proto)
 	}
 
-	nodeAddrs := snap.NodeCandidates(ngID)
+	nodeAddrs := snap.NodeCandidates(res.NodeGroupID)
 	if len(nodeAddrs) == 0 {
-		return
+		return fmt.Errorf("no nodes for group %q", res.NodeGroupID)
 	}
 
 	for _, nodeAddr := range nodeAddrs {
@@ -161,17 +147,14 @@ func (r *Runtime) writeEgressPacket(rawPkt []byte, parsed parsedPacket) {
 			continue
 		}
 
-		if appID != "" {
-			err = r.tunnel.WritePacket(conn, parsed.SrcIP, parsed.SrcPort,
-				parsed.DstIP, parsed.DstPort, parsed.Proto, appID, rawPkt)
-		} else {
-			err = conn.WriteRaw(rawPkt)
-		}
+		err = r.tunnel.WritePacket(conn, parsed.SrcIP, parsed.SrcPort,
+			parsed.DstIP, parsed.DstPort, parsed.Proto, res.AppID, rawPkt)
 		if err == nil {
-			return
+			return nil
 		}
 		log.Printf("L3 egress bridge write %s: %s", nodeAddr, err)
 	}
+	return fmt.Errorf("failed to send packet through any L3 node")
 }
 
 func (r *Runtime) runIngress(ctx context.Context) {

@@ -97,7 +97,7 @@ func (p *Proxy) Serve() error {
 	server := socks5.NewServer(
 		socks5.WithAuthMethods(authMethods),
 		socks5.WithResolver(newSocks5Resolver(p.resolver)),
-		socks5.WithDial(p.router.dialTCP),
+		socks5.WithDial(p.router.dial),
 		socks5.WithLogger(socks5.NewLogger(
 			log.New(os.Stdout, "[SOCKS5] ", log.LstdFlags),
 		)),

@@ -6,7 +6,6 @@
 package auth
 
 import (
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -35,9 +34,7 @@ type Authenticator interface {
 // FetchAuthMethods queries the server for supported auth methods.
 func FetchAuthMethods(server string, port int) ([]AuthMethod, error) {
 	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Transport: shared.NewTransport(),
 	}
 
 	q := url.Values{

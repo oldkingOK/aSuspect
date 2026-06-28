@@ -43,6 +43,20 @@ func newRouter(
 	}
 }
 
+// dial dispatches to dialTCP or dialUDP based on the network parameter.
+// This is the unified entry point for go-socks5, which uses the same
+// dial function for both TCP CONNECT and UDP ASSOCIATE.
+func (r *router) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	switch network {
+	case "tcp":
+		return r.dialTCP(ctx, network, addr)
+	case "udp":
+		return r.dialUDP(ctx, network, addr)
+	default:
+		return nil, fmt.Errorf("unsupported network: %s", network)
+	}
+}
+
 // dialTCP routes a TCP connection.
 //
 // Decision:
@@ -93,13 +107,9 @@ func (r *router) dialTCP(ctx context.Context, network, addr string) (net.Conn, e
 	}
 
 	if !ctx2.useVPN && targetIP != nil {
-		for i := range snap.IPResources {
-			res := &snap.IPResources[i]
-			if res.ContainsIP(targetIP) && res.Matches(shared.ProtoTCP, port) {
-				ctx2.ipResource = res
-				ctx2.useVPN = true
-				break
-			}
+		if res := snap.FindIPResource(targetIP, shared.ProtoTCP, port); res != nil {
+			ctx2.ipResource = res
+			ctx2.useVPN = true
 		}
 	}
 
@@ -158,24 +168,15 @@ func (r *router) dialUDP(ctx context.Context, network, addr string) (net.Conn, e
 	}
 
 	// Match resource for routing.
-	var useVPN bool
 	snap := r.state.Snapshot()
-	for i := range snap.IPResources {
-		if snap.IPResources[i].ContainsIP(targetIP) && snap.IPResources[i].Matches(shared.ProtoUDP, port) {
-			useVPN = true
-			break
-		}
+	if snap.FindIPResource(targetIP, shared.ProtoUDP, port) != nil {
+		return r.gstack.DialUDPConn(
+			nil,
+			&net.UDPAddr{IP: targetIP, Port: port},
+		)
 	}
 
-	if !useVPN {
-		return nil, fmt.Errorf("route: %s:%d does not match any aTrust resource — dropped", targetIP, port)
-	}
-
-	// VPN: gVisor stack → L3 tunnel.
-	return r.gstack.DialUDPConn(
-		&net.UDPAddr{IP: snap.VirtualIP, Port: 0}, // ephemeral port
-		&net.UDPAddr{IP: targetIP, Port: port},
-	)
+	return nil, fmt.Errorf("route: %s:%d does not match any aTrust resource", targetIP, port)
 }
 
 func (r *router) resolveAppAndGroup(ctx *routeContext) (string, string) {

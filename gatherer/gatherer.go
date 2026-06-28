@@ -5,8 +5,6 @@ package gatherer
 
 import (
 	"crypto/md5"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,7 +88,7 @@ func (g *InfoGatherer) fetchClientResource() ([]byte, error) {
 	req.Header.Set("User-Agent", shared.UserAgent)
 	req.Header.Set("Content-Type", "application/json;charset=utf-8")
 	req.Header.Set("x-csrf-token", g.Session.CSRFToken)
-	req.Header.Set("x-sdp-traceid", randHex(8))
+	req.Header.Set("x-sdp-traceid", shared.RandHex(8))
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
@@ -99,14 +97,6 @@ func (g *InfoGatherer) fetchClientResource() ([]byte, error) {
 	defer resp.Body.Close()
 
 	return io.ReadAll(resp.Body)
-}
-
-func randHex(n int) string {
-	b := make([]byte, (n+1)/2)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Errorf("crypto rand: %w", err))
-	}
-	return hex.EncodeToString(b)[:n]
 }
 
 // ── JSON parsing ────────────────────────────────────────────────────────────

@@ -38,8 +38,9 @@ type gvisorStack struct {
 	gs       *stack.Stack
 	endpoint *endpoint
 
-	// Outgoing packets from gVisor → L3 tunnel.
-	egress chan []byte
+	// OnEgress is called synchronously from gVisor's WritePackets for each
+	// outbound raw IPv4 packet. Set by the L3 Runtime at initialization.
+	OnEgress func([]byte) error
 
 	closing atomic.Bool
 }
@@ -52,20 +53,25 @@ type Stack interface {
 
 // endpoint is the virtual NIC that bridges gVisor ↔ L3 tunnel.
 type endpoint struct {
-	egress     chan []byte
+	onEgress func([]byte) error
+	closing  func() bool
+
 	dispatcher stack.NetworkDispatcher
-	closing    func() bool
 }
 
 // newGvisorStack creates a gVisor stack bound to virtualIP.
 func newGvisorStack(virtualIP net.IP) (*gvisorStack, error) {
-	s := &gvisorStack{
-		egress: make(chan []byte, 256),
-	}
+	s := &gvisorStack{}
 
 	s.endpoint = &endpoint{
-		egress:  s.egress,
 		closing: func() bool { return s.closing.Load() },
+		// onEgress is set below, once the gvisorStack is fully constructed.
+	}
+	s.endpoint.onEgress = func(raw []byte) error {
+		if s.OnEgress != nil {
+			return s.OnEgress(raw)
+		}
+		return nil
 	}
 
 	// Create gVisor stack with IPv4, TCP, UDP.
@@ -171,30 +177,24 @@ func (e *endpoint) IsAttached() bool {
 }
 
 // WritePackets is called by gVisor when it produces outbound IP packets.
-// Each packet is sent through the egress channel → L3 tunnel → aTrust.
+// Packets are processed synchronously via the onEgress callback, which
+// parses the packet, matches it against resources, and sends it through
+// the L3 tunnel with proper per-flow authentication — matching zju-connect.
 func (e *endpoint) WritePackets(list stack.PacketBufferList) (int, tcpip.Error) {
 	for _, pkt := range list.AsSlice() {
 		var buf []byte
 		for _, slice := range pkt.AsSlices() {
 			buf = append(buf, slice...)
 		}
-		if len(buf) > 0 {
-			select {
-			case e.egress <- buf:
-			default:
-				// Drop if egress buffer full.
-			}
+		if len(buf) > 0 && e.onEgress != nil {
+			e.onEgress(buf)
 		}
 	}
 	return list.Len(), nil
-}
-
-// EgressChan returns outbound packets from gVisor to the L3 tunnel.
-func (s *gvisorStack) EgressChan() <-chan []byte {
-	return s.egress
 }
 
 // DialUDPConn returns a gonet UDP conn backed by gVisor.
 func (s *gvisorStack) DialUDPConn(laddr, raddr *net.UDPAddr) (net.Conn, error) {
 	return s.DialUDP(laddr, raddr)
 }
+

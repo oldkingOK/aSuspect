@@ -6,7 +6,7 @@ require (
 	github.com/doctxing/fakeProxy v0.0.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/refraction-networking/utls v1.8.2
-	github.com/things-go/go-socks5 v0.0.5
+	github.com/things-go/go-socks5 v0.1.1
 )
 
 require (

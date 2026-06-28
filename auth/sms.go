@@ -54,11 +54,9 @@ func (a SMSAuth) Login(s *Session) error {
 
 // sendSms POSTs to /passport/v1/public/sendSms.
 func (s *Session) sendSms(phone, loginDomain, graphCheckCode string) (int, error) {
-	data := map[string]string{
-		"phone": phone + "@" + loginDomain,
-	}
-	if graphCheckCode != "" {
-		data["graphCheckCode"] = graphCheckCode
+	data := map[string]interface{}{
+		"phone":          phone + "@" + loginDomain,
+		"graphCheckCode": graphCheckCode,
 	}
 	payload, _ := json.Marshal(data)
 

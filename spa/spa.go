@@ -6,9 +6,9 @@
 //
 // Flow:
 //
-//	authConfig → antiMITMAttackData.seed → ParseSeed → GenerateTOTP
-//	                                          → BuildClientHelloExtension
-//	                                          → injected into TLS ClientHello
+//	authConfig → antiMITMAttackData.encryptedChallenge → ParseSeed → GenerateTOTP
+//	                                                      → BuildClientHelloExtension
+//	                                                      → injected into TLS ClientHello
 //
 // Two modes:
 //
