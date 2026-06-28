@@ -33,7 +33,7 @@ First login:
 To list available auth types:
 
 ```bash
-./aSuspect -server <server> -auth-type
+./aSuspect -server <server> -auth-info
 ```
 
 After login, session info is saved to `aSuspect_session.json`, and subsequent runs no longer require login parameters. If migrating, copy the `aSuspect_session.json` file to the new environment.

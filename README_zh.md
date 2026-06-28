@@ -33,7 +33,7 @@ TCP 流量有两种转发方式，l4quic (l4快连) 以及 l3tun，前者在 TCP
 登陆类型可以通过
 
 ```bash
-./aSuspect -server <server> -auth-type
+./aSuspect -server <server> -auth-info
 ```
 
 获取，登录后会保存登陆信息到 `aSuspect_session.json`，后续运行不再需要加入登陆参数。如果迁移需要保留登陆信息，请将 `aSuspect_session.json` 文件拷贝到新环境。
