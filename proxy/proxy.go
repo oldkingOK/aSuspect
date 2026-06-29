@@ -13,7 +13,7 @@ import (
 	"syscall"
 
 	"aSuspect/l3tun"
-	"aSuspect/l4quic"
+	"aSuspect/l4fast"
 	"aSuspect/shared"
 	"aSuspect/spa"
 
@@ -49,7 +49,7 @@ func New(cfg *shared.Config, state *shared.SharedState) (*Proxy, error) {
 	}
 
 	// Create L4 tunnel.
-	l4t := &l4quic.Tunnel{
+	l4t := &l4fast.Tunnel{
 		SID:          state.SID,
 		DeviceID:     state.DeviceID,
 		ConnectionID: state.ConnectionID,

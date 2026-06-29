@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	"aSuspect/l3tun"
-	"aSuspect/l4quic"
+	"aSuspect/l4fast"
 	"aSuspect/shared"
 )
 
 // router makes routing decisions for each SOCKS5 request.
 type router struct {
 	state   *shared.SharedState
-	l4T     *l4quic.Tunnel
+	l4T     *l4fast.Tunnel
 	gstack  l3tun.Stack
 	tcpMode string // "l4" or "l3"
 }
@@ -28,7 +28,7 @@ type routeContext struct {
 
 func newRouter(
 	state *shared.SharedState,
-	l4t *l4quic.Tunnel,
+	l4t *l4fast.Tunnel,
 	gs l3tun.Stack,
 	tcpMode string,
 ) *router {

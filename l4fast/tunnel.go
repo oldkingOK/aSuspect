@@ -1,9 +1,7 @@
-// Package l4quic implements the L4 TCP tunnel — per-connection TLS + binary
-// framing. Named l4quic to reserve the l4 namespace for a future QUIC upgrade.
-//
-// Each TCP connection opens its own TLS session to an aTrust node.
-// No userspace TCP/IP stack is needed — the aTrust server handles
-// TCP state on the remote side.
+// Package l4fast implements the L4 TCP tunnel — per-connection TLS + binary
+// framing. Fast and simple: each TCP connection opens its own TLS session to an
+// aTrust node. No userspace TCP/IP stack needed — the server handles TCP state
+// on the remote side.
 //
 // Protocol frames (all big-endian):
 //
@@ -18,7 +16,7 @@
 //	  Data:     01 00 <len:2> <data>
 //	  Protocol: 53 00 <json_len:2> <json>
 //	  Close:    01 01 30 30
-package l4quic
+package l4fast
 
 import (
 	"bufio"

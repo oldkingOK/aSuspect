@@ -18,7 +18,7 @@ CAS authentication uses a tool called fakeProxy, which enables easy authenticati
 
 Due to SOCKS5 limitations, only TCP, UDP, and DNS forwarding are supported; other traffic will be dropped. If needed, use IP-over-UDP or similar solutions for transport.
 
-TCP traffic has two forwarding modes: l4quic (L4 fast connection) and l3tun. The former transmits over TCP for higher speed, while the latter uses the versatile l3tun tunnel. For speed, use UDP-over-TCP over l4quic; for stability, use l3tun. L3 is single-connection — the original implementation has a transport pool that groups more traffic into batches, but personal testing showed no significant advantage, so it was not implemented.
+TCP traffic has two forwarding modes: l4fast (L4 fast connection) and l3tun. The former transmits over TCP for higher speed, while the latter uses the versatile l3tun tunnel. For speed, use UDP-over-TCP over l4fast; for stability, use l3tun. L3 is single-connection — the original implementation has a transport pool that groups more traffic into batches, but personal testing showed no significant advantage, so it was not implemented.
 
 Limited by personal authentication access, CAS authentication is currently working well. Other authentication methods and SPA knocking are only theoretical implementations at this stage and have not been tested.
 
