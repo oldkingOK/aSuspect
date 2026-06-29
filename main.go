@@ -12,7 +12,7 @@ import (
 	"aSuspect/shared"
 )
 
-const appVersion = "0.2.0"
+var appVersion = "dev"
 
 func main() {
 	cfg, err := shared.ParseFlags(os.Args[1:])
@@ -22,7 +22,7 @@ func main() {
 	}
 
 	if cfg.ShowVersion {
-		fmt.Printf("aSuspect v%s\n", appVersion)
+		fmt.Printf("aSuspect %s\n", appVersion)
 		return
 	}
 
