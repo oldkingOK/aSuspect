@@ -3,6 +3,7 @@ package gatherer
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -70,6 +71,48 @@ func LoadSession() (*SessionStore, error) {
 		return nil, fmt.Errorf("session file is missing SID")
 	}
 	return &s, nil
+}
+
+// Validate checks whether the saved session is still usable by making
+// a lightweight request to the server's onlineInfo endpoint.
+// Returns true if the server accepts the session cookies (code == 0).
+func (s *SessionStore) Validate(server string, port int) bool {
+	client, err := s.NewClient()
+	if err != nil {
+		return false
+	}
+
+	host := server
+	if port != 443 {
+		host = fmt.Sprintf("%s:%d", server, port)
+	}
+
+	q := url.Values{
+		"clientType": {"SDPClient"},
+		"platform":   {"Linux"},
+		"lang":       {"en-US"},
+	}
+	u := fmt.Sprintf("https://%s/passport/v1/user/onlineInfo?%s", host, q.Encode())
+
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("User-Agent", shared.UserAgent)
+	if s.CSRFToken != "" {
+		req.Header.Set("x-csrf-token", s.CSRFToken)
+	}
+	req.Header.Set("x-sdp-traceid", shared.RandHex(8))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	var v struct {
+		Code int `json:"code"`
+	}
+	json.Unmarshal(body, &v)
+	return v.Code == 0
 }
 
 func (s *SessionStore) serverURL() *url.URL {

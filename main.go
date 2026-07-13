@@ -41,23 +41,26 @@ func run(cfg *shared.Config) error {
 	var session *gatherer.SessionStore
 	var client *http.Client
 
-	if cfg.AuthType != "" {
+	// Try saved session first — even if -auth is specified, a valid
+	// cached session avoids an unnecessary re-login.
+	if s, err := gatherer.LoadSession(); err == nil && s.Validate(cfg.ServerAddress, cfg.ServerPort) {
+		session = s
+		client, _ = s.NewClient()
+		log.Printf("Using saved session for %s", s.Username)
+	}
+
+	// Fall back to login when saved session is missing / expired.
+	if session == nil && cfg.AuthType != "" {
 		s, err := doLogin(cfg)
 		if err != nil {
 			return fmt.Errorf("login: %w", err)
 		}
 		session = s
 		client = s.LiveClient()
-	} else {
-		s, err := gatherer.LoadSession()
-		if err != nil {
-			return fmt.Errorf("load session: %w", err)
-		}
-		session = s
-		client, err = s.NewClient()
-		if err != nil {
-			return fmt.Errorf("create client: %w", err)
-		}
+	}
+
+	if session == nil {
+		return fmt.Errorf("no valid session (run with -auth first)")
 	}
 
 	log.Printf("Logged in as %s", session.Username)
