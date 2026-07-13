@@ -19,6 +19,35 @@ import (
 // RedirectAuth handles redirect-based SSO login (CAS, OAuth2, httpsOauth2).
 type RedirectAuth struct{}
 
+// CASLoginHandle holds the state of an in-progress CAS/OAuth2 login.
+// Call Wait() to block until the callback arrives, or Close() to abort.
+type CASLoginHandle struct {
+	EntryURL   string
+	CallbackCh <-chan string
+	proxy      *fakeproxy.Server
+	cancel     context.CancelFunc
+	sigCtx     context.Context
+}
+
+// Wait blocks until the CAS callback is received, the context is cancelled,
+// or an interrupt signal arrives.
+func (h *CASLoginHandle) Wait(ctx context.Context) (string, error) {
+	select {
+	case callback := <-h.CallbackCh:
+		return callback, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-h.sigCtx.Done():
+		return "", h.sigCtx.Err()
+	}
+}
+
+// Close shuts down the fakeProxy server and cancels signal handling.
+func (h *CASLoginHandle) Close() {
+	h.cancel()
+	h.proxy.Close()
+}
+
 func (a RedirectAuth) Login(s *Session) error {
 	loginURL, err := s.resolveRedirectAuth()
 	if err != nil {
@@ -30,15 +59,16 @@ func (a RedirectAuth) Login(s *Session) error {
 		return fmt.Errorf("interactive login: %w", err)
 	}
 
-	if err := s.completeRedirectAuth(callbackURL); err != nil {
+	if err := s.CompleteCASLogin(callbackURL); err != nil {
 		return fmt.Errorf("complete auth: %w", err)
 	}
 
-	if err := s.fetchAuthConfigMod(); err != nil {
-		return fmt.Errorf("authConfigMod: %w", err)
-	}
-
 	return nil
+}
+
+// ResolveRedirectAuth returns the CAS/OAuth2 login URL from the auth config.
+func (s *Session) ResolveRedirectAuth() (string, error) {
+	return s.resolveRedirectAuth()
 }
 
 func (s *Session) resolveRedirectAuth() (string, error) {
@@ -67,8 +97,23 @@ func (s *Session) resolveURL(raw string) string {
 }
 
 func (s *Session) interactiveLogin(loginURL string) (string, error) {
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	ctx := context.Background()
+	handle, err := s.StartCASLogin(ctx, loginURL)
+	if err != nil {
+		return "", err
+	}
+	defer handle.Close()
+
+	fmt.Printf("\nOpen this URL in your browser:\n  %s\n\nWaiting for login...\n", handle.EntryURL)
+
+	return handle.Wait(ctx)
+}
+
+// StartCASLogin starts the fakeProxy and begins the CAS/OAuth2 login flow.
+// It returns immediately with a handle; call Wait() to block for completion
+// or use CallbackCh to receive the callback asynchronously.
+func (s *Session) StartCASLogin(ctx context.Context, loginURL string) (*CASLoginHandle, error) {
+	sigCtx, sigCancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 
 	callbackCh := make(chan string, 1)
 
@@ -96,22 +141,35 @@ func (s *Session) interactiveLogin(loginURL string) (string, error) {
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("create proxy: %w", err)
+		sigCancel()
+		return nil, fmt.Errorf("create proxy: %w", err)
 	}
 
-	result, err := proxy.Start(ctx, loginURL)
+	result, err := proxy.Start(sigCtx, loginURL)
 	if err != nil {
-		return "", fmt.Errorf("start proxy: %w", err)
+		sigCancel()
+		return nil, fmt.Errorf("start proxy: %w", err)
 	}
 
-	fmt.Printf("\nOpen this URL in your browser:\n  %s\n\nWaiting for login...\n", result.EntryURL)
+	return &CASLoginHandle{
+		EntryURL:   result.EntryURL,
+		CallbackCh: callbackCh,
+		proxy:      proxy,
+		cancel:     sigCancel,
+		sigCtx:     sigCtx,
+	}, nil
+}
 
-	select {
-	case callback := <-callbackCh:
-		return callback, nil
-	case <-ctx.Done():
-		return "", ctx.Err()
+// CompleteCASLogin finishes the CAS/OAuth2 login after the callback arrives.
+// It completes the redirect auth and refreshes the auth config.
+func (s *Session) CompleteCASLogin(callbackURL string) error {
+	if err := s.completeRedirectAuth(callbackURL); err != nil {
+		return fmt.Errorf("complete auth: %w", err)
 	}
+	if err := s.fetchAuthConfigMod(); err != nil {
+		return fmt.Errorf("authConfigMod: %w", err)
+	}
+	return nil
 }
 
 func (s *Session) completeRedirectAuth(callbackURL string) error {
